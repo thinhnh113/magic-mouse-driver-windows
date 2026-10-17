@@ -1,0 +1,52 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{A073E883-50E2-4519-90AF-DBD407E20C97}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MagicMouse.Core", "src\MagicMouse.Core\MagicMouse.Core.csproj", "{AC6111DD-F8B6-470D-A7C7-A6C6DDB10700}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{4EAC801D-18B2-4E95-B624-87EADAEE75A8}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MagicMouse.Tests", "tests\MagicMouse.Tests\MagicMouse.Tests.csproj", "{1F8ACFE4-CC29-4D72-8DD8-2259BB7AF31A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MagicMouse.App", "src\MagicMouse.App\MagicMouse.App.csproj", "{6F914DB4-E0AF-43EF-8B27-D5314E2DDCFF}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tools", "tools", "{35BA2FEA-A499-4C08-A53A-908C1BCEB756}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HidProbe", "tools\HidProbe\HidProbe.csproj", "{AC703E8D-15FF-4150-90FA-6E0FCF337043}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{AC6111DD-F8B6-470D-A7C7-A6C6DDB10700}.Debug|Any CPU.ActiveCfg = Debug|x64
+		{AC6111DD-F8B6-470D-A7C7-A6C6DDB10700}.Debug|Any CPU.Build.0 = Debug|x64
+		{AC6111DD-F8B6-470D-A7C7-A6C6DDB10700}.Release|Any CPU.ActiveCfg = Release|x64
+		{AC6111DD-F8B6-470D-A7C7-A6C6DDB10700}.Release|Any CPU.Build.0 = Release|x64
+		{1F8ACFE4-CC29-4D72-8DD8-2259BB7AF31A}.Debug|Any CPU.ActiveCfg = Debug|x64
+		{1F8ACFE4-CC29-4D72-8DD8-2259BB7AF31A}.Debug|Any CPU.Build.0 = Debug|x64
+		{1F8ACFE4-CC29-4D72-8DD8-2259BB7AF31A}.Release|Any CPU.ActiveCfg = Release|x64
+		{1F8ACFE4-CC29-4D72-8DD8-2259BB7AF31A}.Release|Any CPU.Build.0 = Release|x64
+		{6F914DB4-E0AF-43EF-8B27-D5314E2DDCFF}.Debug|Any CPU.ActiveCfg = Debug|x64
+		{6F914DB4-E0AF-43EF-8B27-D5314E2DDCFF}.Debug|Any CPU.Build.0 = Debug|x64
+		{6F914DB4-E0AF-43EF-8B27-D5314E2DDCFF}.Release|Any CPU.ActiveCfg = Release|x64
+		{6F914DB4-E0AF-43EF-8B27-D5314E2DDCFF}.Release|Any CPU.Build.0 = Release|x64
+		{AC703E8D-15FF-4150-90FA-6E0FCF337043}.Debug|Any CPU.ActiveCfg = Debug|x64
+		{AC703E8D-15FF-4150-90FA-6E0FCF337043}.Debug|Any CPU.Build.0 = Debug|x64
+		{AC703E8D-15FF-4150-90FA-6E0FCF337043}.Release|Any CPU.ActiveCfg = Release|x64
+		{AC703E8D-15FF-4150-90FA-6E0FCF337043}.Release|Any CPU.Build.0 = Release|x64
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{AC6111DD-F8B6-470D-A7C7-A6C6DDB10700} = {A073E883-50E2-4519-90AF-DBD407E20C97}
+		{1F8ACFE4-CC29-4D72-8DD8-2259BB7AF31A} = {4EAC801D-18B2-4E95-B624-87EADAEE75A8}
+		{6F914DB4-E0AF-43EF-8B27-D5314E2DDCFF} = {A073E883-50E2-4519-90AF-DBD407E20C97}
+		{AC703E8D-15FF-4150-90FA-6E0FCF337043} = {35BA2FEA-A499-4C08-A53A-908C1BCEB756}
+	EndGlobalSection
+EndGlobal

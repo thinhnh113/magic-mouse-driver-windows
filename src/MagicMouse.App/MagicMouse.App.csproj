@@ -1,0 +1,17 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>MagicMouse.App</RootNamespace>
+    <AssemblyName>MagicMouse</AssemblyName>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationIcon>Assets\MagicMouse.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Regenerate with tools\icon\make-icon.ps1 -->
+    <EmbeddedResource Include="Assets\MagicMouse.ico" LogicalName="MagicMouse.ico" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\MagicMouse.Core\MagicMouse.Core.csproj" />
+  </ItemGroup>
+</Project>

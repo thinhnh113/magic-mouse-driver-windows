@@ -1,0 +1,96 @@
+﻿; MagicTouchFilter - lower filter for Apple Magic Mouse (Bluetooth + USB)
+; Installs the stock HID function driver (hidbth / hidusb) plus MagicTouchFilter as LowerFilter.
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = HIDClass
+ClassGuid   = {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+Provider    = %Provider%
+CatalogFile = MagicTouchFilter.cat
+DriverVer   = 10/17/2026,1.0.0.0
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir = 13
+
+[SourceDisksNames]
+1 = %DiskName%
+
+[SourceDisksFiles]
+MagicTouchFilter.sys = 1
+
+[Manufacturer]
+%Mfg% = Models, NTamd64.10.0...19041
+
+[Models.NTamd64.10.0...19041]
+%MM1.Bth% = Bth_Inst, BTHENUM\{00001124-0000-1000-8000-00805f9b34fb}_VID&000205ac_PID&030d
+%MM1.Bth% = Bth_Inst, BTHENUM\{00001124-0000-1000-8000-00805f9b34fb}_VID&000205ac_PID&0310
+%MM2.Bth% = Bth_Inst, BTHENUM\{00001124-0000-1000-8000-00805f9b34fb}_VID&0001004c_PID&0269
+%MM3.Bth% = Bth_Inst, BTHENUM\{00001124-0000-1000-8000-00805f9b34fb}_VID&0001004c_PID&0323
+%MM2.Usb% = Usb_Inst, USB\VID_05AC&PID_0269&MI_01
+%MM3.Usb% = Usb_Inst, USB\VID_05AC&PID_0323&MI_01
+
+[Filter_CopyFiles]
+MagicTouchFilter.sys
+
+[Filter_AddReg]
+HKR,,"LowerFilters",0x00010000,"MagicTouchFilter"
+
+[Filter_Service]
+DisplayName   = %ServiceDesc%
+ServiceType   = 1   ; SERVICE_KERNEL_DRIVER
+StartType     = 3   ; SERVICE_DEMAND_START
+ErrorControl  = 1   ; SERVICE_ERROR_NORMAL
+ServiceBinary = %13%\MagicTouchFilter.sys
+
+; ---------------- Bluetooth (hidbth)
+[Bth_Inst.NT]
+Include    = hidbth.inf
+Needs      = HIDBTH_Inst.NT
+CopyFiles  = Filter_CopyFiles
+
+[Bth_Inst.NT.HW]
+Include = input.inf
+Needs   = HID_Inst.NT.HW
+AddReg  = Filter_AddReg
+
+[Bth_Inst.NT.Services]
+Include    = hidbth.inf
+Needs      = HIDBTH_Inst.NT.Services
+AddService = MagicTouchFilter,,Filter_Service
+
+[Bth_Inst.NT.Wdf]
+KmdfService = MagicTouchFilter, Filter_Wdf
+
+; ---------------- USB (hidusb)
+[Usb_Inst.NT]
+Include    = input.inf
+Needs      = HID_Inst.NT
+CopyFiles  = Filter_CopyFiles
+
+[Usb_Inst.NT.HW]
+Include = input.inf
+Needs   = HID_Inst.NT.HW
+AddReg  = Filter_AddReg
+
+[Usb_Inst.NT.Services]
+Include    = input.inf
+Needs      = HID_Inst.NT.Services
+AddService = MagicTouchFilter,,Filter_Service
+
+[Usb_Inst.NT.Wdf]
+KmdfService = MagicTouchFilter, Filter_Wdf
+
+[Filter_Wdf]
+KmdfLibraryVersion = 1.15
+
+[Strings]
+Provider    = "MagicMouse (personal build)"
+Mfg         = "Apple Inc."
+DiskName    = "MagicTouchFilter install disk"
+ServiceDesc = "MagicMouse multitouch filter"
+MM1.Bth     = "Magic Mouse (2009) - MagicMouse"
+MM2.Bth     = "Magic Mouse 2 - MagicMouse (Bluetooth)"
+MM3.Bth     = "Magic Mouse (USB-C) - MagicMouse (Bluetooth)"
+MM2.Usb     = "Magic Mouse 2 - MagicMouse (USB)"
+MM3.Usb     = "Magic Mouse (USB-C) - MagicMouse (USB)"

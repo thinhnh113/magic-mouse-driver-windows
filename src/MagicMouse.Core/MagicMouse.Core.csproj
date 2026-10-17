@@ -1,0 +1,10 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>MagicMouse.Core</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="MagicMouse.Tests" />
+    <InternalsVisibleTo Include="MagicMouse" />
+    <InternalsVisibleTo Include="HidProbe" />
+  </ItemGroup>
+</Project>

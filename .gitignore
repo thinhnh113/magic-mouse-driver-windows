@@ -1,0 +1,47 @@
+# ---- .NET build output
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+*.user
+*.suo
+*.rsuser
+.vs/
+TestResults/
+*.trx
+*.coverage
+
+# ---- Packaging output (build-installer.cmd)
+artifacts/
+
+# ---- Driver build output (driver\MagicTouchFilter\build.cmd)
+driver/MagicTouchFilter/out/
+driver/MagicTouchFilter/obj/
+*.sys
+*.cat
+*.pdb
+*.ilk
+*.obj
+*.tlog
+*.lastbuildstate
+
+# ---- Signing material: never commit certificates or private keys
+*.cer
+*.pfx
+*.p12
+*.pvk
+*.spc
+*.snk
+
+# ---- Logs and local junk
+*.log
+*.tmp
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# ---- Editors
+.vscode/
+.idea/
+*.swp
