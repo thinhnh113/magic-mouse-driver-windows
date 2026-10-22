@@ -35,7 +35,14 @@ powershell -NoProfile -Command "$c = Get-ChildItem Cert:\CurrentUser\My | Where-
 rem 1) sign the .sys  2) stamp INF + build catalog over the signed .sys  3) sign the catalog
 %SIGN% "%OUT%\MagicTouchFilter.sys" || exit /b 1
 copy /y "%HERE%MagicTouchFilter.inf" "%OUT%\MagicTouchFilter.inf" >nul
-"%WDK%\bin\%VER%\x64\stampinf.exe" -f "%OUT%\MagicTouchFilter.inf" -d * -a amd64 -v * -k %KMDF% >nul || exit /b 1
+rem DriverVer date in UTC: Inf2Cat rejects a "future" date, which a local date is just after midnight east of UTC.
+rem Version from the same UTC clock (yy.MMdd.HHmm.ss): it must only ever grow, or Windows keeps an installed
+rem driver with the same date and a higher version ("-v *" uses local time, which goes backwards vs UTC dates).
+for /f "tokens=1,2" %%a in ('powershell -NoProfile -Command "$u=[DateTime]::UtcNow; $u.ToString('MM/dd/yyyy') + ' ' + $u.ToString('yy.MMdd.HHmm.ss')"') do (
+  set DRVDATE=%%a
+  set DRVVER=%%b
+)
+"%WDK%\bin\%VER%\x64\stampinf.exe" -f "%OUT%\MagicTouchFilter.inf" -d %DRVDATE% -a amd64 -v %DRVVER% -k %KMDF% >nul || exit /b 1
 "%WDK%\bin\%VER%\x86\Inf2Cat.exe" /driver:"%OUT%" /os:10_X64,10_VB_X64,10_NI_X64 || exit /b 1
 %SIGN% "%OUT%\MagicTouchFilter.cat" || exit /b 1
 echo Built and test-signed: %OUT%

@@ -26,6 +26,10 @@ public sealed class MouseService : IDisposable
     private readonly Timer _wake;
 
     public event Action<ServiceState>? StateChanged;
+    /// <summary>Raised on the reader thread when the driver has caught a new battery report from the mouse
+    /// (it sends one by itself whenever its level or charging state changes).</summary>
+    public event Action? BatteryChanged;
+    private byte[]? _lastBattery;
     /// <summary>Raised on the reader thread for each frame (for the live touches view).</summary>
     public event Action<FilterDevice, TouchFrame>? FrameReceived;
 
@@ -143,6 +147,14 @@ public sealed class MouseService : IDisposable
         // Re-sent on every scan (every few seconds): the driver only talks to the mouse when the mode
         // actually changes, and this restores our config if another client (HidProbe) changed it.
         PushConfig();
+
+        // The driver's battery cache is read with the device list, so this costs the mouse nothing.
+        var battery = found.FirstOrDefault()?.Battery?.Good;
+        if (battery != null && (_lastBattery == null || !battery.AsSpan().SequenceEqual(_lastBattery)))
+        {
+            _lastBattery = battery;
+            BatteryChanged?.Invoke();
+        }
         SetState(_paused ? ServiceState.Paused : found.Count > 0 ? ServiceState.Running : ServiceState.NoDevice);
     }
 

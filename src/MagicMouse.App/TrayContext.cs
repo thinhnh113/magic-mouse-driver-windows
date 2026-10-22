@@ -31,6 +31,8 @@ internal sealed class TrayContext : ApplicationContext
         if (_settings.Pointer.PointerSpeed > 0) PointerSpeed.Set(_settings.Pointer.PointerSpeed);
 
         _service = new MouseService(_settings);
+        // A new battery report (level or charging changed): update the tray now, not at the next 60 s poll.
+        _service.BatteryChanged += () => UiInvoke(RefreshBattery);
         _service.StateChanged += state => UiInvoke(() =>
         {
             UpdateTray();
@@ -154,12 +156,13 @@ internal sealed class TrayContext : ApplicationContext
         _tray.Text = text.Length > 63 ? text[..63] : text;
 
         var old = _currentIcon;
-        _currentIcon = DrawIcon(_battery?.Percent, _service.State == ServiceState.Running && _settings.Enabled);
+        _currentIcon = DrawIcon(_battery?.Percent, _service.State == ServiceState.Running && _settings.Enabled,
+                                _battery?.Charging == true);
         _tray.Icon = _currentIcon;
         if (old != null) { NativeUi.DestroyIcon(old.Handle); old.Dispose(); }
     }
 
-    private static Icon DrawIcon(int? percent, bool active)
+    private static Icon DrawIcon(int? percent, bool active, bool charging)
     {
         using var bmp = new Bitmap(32, 32);
         using (var g = Graphics.FromImage(bmp))
@@ -178,6 +181,16 @@ internal sealed class TrayContext : ApplicationContext
                 g.FillRectangle(back, 25, 3, 6, 26);
                 int h = Math.Max(2, 24 * p / 100);
                 g.FillRectangle(bar, 26, 28 - h, 4, h);
+            }
+            if (charging)
+            {
+                // Lightning bolt in the bottom-left corner (same as MagicKeyboard), outlined so it reads on
+                // light and dark taskbars.
+                PointF[] bolt = { new(9, 14), new(2, 24), new(7, 24), new(4, 31), new(13, 20), new(8, 20), new(11, 14) };
+                using var outline = new Pen(Color.FromArgb(220, 20, 20, 20), 2f) { LineJoin = LineJoin.Round };
+                using var fill = new SolidBrush(Color.Gold);
+                g.DrawPolygon(outline, bolt);
+                g.FillPolygon(fill, bolt);
             }
         }
         return Icon.FromHandle(bmp.GetHicon());
