@@ -24,6 +24,8 @@ The vendor driver installs as a KMDF **LowerFilter** below hidbth / hidusb. It c
 - MM2/MM3: feature report `F1 02 01`.
 - Over BT, send it as a HID SET_REPORT (feature) transaction, header `0x53`, on the control channel.
 - Must be re-sent after reconnect or resume.
+- **Off:** `F1 02 00` (verified on MM3, 2026-10-22). Touch reports stop and plain 8-byte mouse reports continue, so the pointer keeps working. No off command is known for MM1.
+- **Short reports during multitouch:** in multitouch mode the mouse still sends plain 8-byte `0x12` reports while it moves with no finger on the surface (15–24/s were seen during a test). A short report on its own therefore does not mean the mouse dropped out of multitouch. A drop-out happens after it dozes off, which shows up as a gap in reports.
 
 ## Touch report layout (public facts)
 **MM2/MM3, report 0x12:**

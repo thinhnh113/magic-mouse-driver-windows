@@ -79,6 +79,16 @@ public sealed class MouseService : IDisposable
         SetState(paused ? ServiceState.Paused : _devices.Count > 0 ? ServiceState.Running : State);
     }
 
+    /// <summary>Drops the Bluetooth link of every Bluetooth mouse so it can deep-sleep. The mouse stays paired
+    /// and reconnects by itself when moved or clicked; the driver re-enables multitouch then.</summary>
+    public void DisconnectBluetooth()
+    {
+        foreach (var d in RefreshedDevices().Where(d => d.Transport == Transport.Bluetooth))
+        {
+            if (Hid.BluetoothLink.ParseAddress(d.BluetoothAddress) is { } addr) Hid.BluetoothLink.Disconnect(addr);
+        }
+    }
+
     /// <summary>Re-send the mode switch, e.g. after resume from sleep.</summary>
     public void Recover() => PushConfig();
 
@@ -108,7 +118,6 @@ public sealed class MouseService : IDisposable
         var c = _client;
         if (c == null) return;
         var found = c.GetDevices();
-        bool changed;
         List<FilterDevice> added;
         lock (_gate) added = found.Where(f => !_devices.ContainsKey(f.Index)).ToList();
         foreach (var f in added)
@@ -120,7 +129,6 @@ public sealed class MouseService : IDisposable
         }
         lock (_gate)
         {
-            changed = found.Count != _devices.Count || found.Any(f => !_devices.ContainsKey(f.Index));
             foreach (var gone in _devices.Keys.Except(found.Select(f => f.Index)).ToList())
             {
                 _devices[gone].Engine.Reset();
@@ -132,7 +140,9 @@ public sealed class MouseService : IDisposable
                 else _devices[f.Index] = (f, new GestureEngine(_settings, _sink, f.Model));
             }
         }
-        if (changed) PushConfig();
+        // Re-sent on every scan (every few seconds): the driver only talks to the mouse when the mode
+        // actually changes, and this restores our config if another client (HidProbe) changed it.
+        PushConfig();
         SetState(_paused ? ServiceState.Paused : found.Count > 0 ? ServiceState.Running : ServiceState.NoDevice);
     }
 

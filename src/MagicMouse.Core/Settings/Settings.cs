@@ -135,6 +135,10 @@ public sealed class PowerSettings
     public bool PauseOnBatteryPower { get; set; }
     public bool PauseOnLogOff { get; set; }
     public bool RecoverMultitouchOnWakeup { get; set; } = true;
+    /// <summary>Drop the Bluetooth link while the display is off so the mouse can deep-sleep. It reconnects
+    /// by itself as soon as it is moved or clicked.</summary>
+    public bool DisconnectOnDisplayOff { get; set; } = true;
+    public bool DisconnectOnLock { get; set; }
     public bool BluetoothKeepAlive { get; set; }
     public int BluetoothKeepAlivePeriodMs { get; set; } = 2000;
 }

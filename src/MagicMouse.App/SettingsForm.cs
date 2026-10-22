@@ -182,6 +182,10 @@ internal sealed class SettingsForm : Form
         Check(p, "Pause multitouch on battery power", s => s.Power.PauseOnBatteryPower, (s, v) => s.Power.PauseOnBatteryPower = v);
         Check(p, "Pause multitouch while locked / logged off", s => s.Power.PauseOnLogOff, (s, v) => s.Power.PauseOnLogOff = v);
         Check(p, "Recover multitouch on wakeup", s => s.Power.RecoverMultitouchOnWakeup, (s, v) => s.Power.RecoverMultitouchOnWakeup = v);
+        Check(p, "Disconnect the mouse while the display is off (deep sleep; move or click to reconnect)",
+            s => s.Power.DisconnectOnDisplayOff, (s, v) => s.Power.DisconnectOnDisplayOff = v);
+        Check(p, "Disconnect the mouse while the PC is locked",
+            s => s.Power.DisconnectOnLock, (s, v) => s.Power.DisconnectOnLock = v);
         Check(p, "Bluetooth keep-alive (re-send multitouch mode periodically)", s => s.Power.BluetoothKeepAlive, (s, v) => s.Power.BluetoothKeepAlive = v);
         Slider(p, "Keep-alive period (s)", 1, 30, s => s.Power.BluetoothKeepAlivePeriodMs / 1000, (s, v) => s.Power.BluetoothKeepAlivePeriodMs = v * 1000);
 

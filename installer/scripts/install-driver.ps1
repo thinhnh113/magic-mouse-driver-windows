@@ -32,6 +32,15 @@ try {
     if ($code -eq 3010) { $reboot = $true }
     elseif ($code -ne 0 -and $code -ne 259) { exit $code }
 
+    # Drop older staged versions of our package (each update adds one). One still in use just fails to delete.
+    $current = ($out | Select-String -Pattern 'oem\d+\.inf' | Select-Object -First 1).Matches.Value
+    Get-WindowsDriver -Online -All -ErrorAction SilentlyContinue |
+        Where-Object { $_.OriginalFileName -like '*\magictouchfilter.inf' -and $_.Driver -ne $current } |
+        ForEach-Object {
+            pnputil /delete-driver $_.Driver 2>&1 | Out-Null
+            Log "removed old package $($_.Driver) ($($_.Version)): exit $LASTEXITCODE"
+        }
+
     # Restart connected Magic Mice so the filter attaches right away.
     $pattern = '^(BTHENUM\\\{00001124-0000-1000-8000-00805F9B34FB\}_VID&(000205AC|0001004C)_PID&(030D|0310|0269|0323)\\|USB\\VID_05AC&PID_(0269|0323)&MI_01\\)'
     foreach ($d in Get-PnpDevice -PresentOnly | Where-Object { $_.InstanceId -match $pattern }) {

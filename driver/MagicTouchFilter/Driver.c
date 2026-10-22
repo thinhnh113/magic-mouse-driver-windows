@@ -26,6 +26,8 @@
 #define HIDP_DATA_INPUT          0xA1   // BT HIDP: DATA | Input
 #define HIDP_SET_REPORT_FEATURE  0x53   // BT HIDP: SET_REPORT | Feature
 #define MODE_SWITCH_MIN_INTERVAL (10 * 1000 * 1000)  // 1s in 100ns
+#define MODE_RECHECK_GAP         (20 * 1000 * 1000)  // 2s without reports: the mouse may have dozed off
+#define MODE_UNCONFIRMED_RETRIES 3
 
 typedef struct _FILTER_CONTEXT {
     WDFDEVICE Device;
@@ -39,8 +41,11 @@ typedef struct _FILTER_CONTEXT {
     volatile LONG Flags;
     ULONG KeepAlivePeriodMs;
     volatile LONG ReportsSeen;
-    volatile LONG ModeSwitched;
+    volatile LONG ModeSwitched;        // a touch report confirmed multitouch since the last switch
     LONGLONG LastModeSwitch;
+    LONGLONG LastInputTime;
+    ULONG UnconfirmedRetries;
+    BOOLEAN MultitouchSent;            // last mode command sent was "on"
 
     // Bluetooth
     BTH_PROFILE_DRIVER_INTERFACE BthIf;
@@ -101,9 +106,11 @@ static PFILTER_CONTEXT g_Devices[MMF_MAX_DEVICES];
 static MMF_REPORT g_Ring[MMF_RING_SIZE];
 static ULONG g_RingHead, g_RingCount;
 static WDFWAITLOCK g_ControlLock;
+static WDFFILEOBJECT g_ConfigOwner;   // handle that last switched multitouch on (the app)
 
 DRIVER_INITIALIZE DriverEntry;
 EVT_WDF_DRIVER_DEVICE_ADD EvtDeviceAdd;
+EVT_WDF_DRIVER_UNLOAD EvtDriverUnload;
 EVT_WDF_DEVICE_PREPARE_HARDWARE EvtPrepareHardware;
 EVT_WDF_DEVICE_D0_ENTRY EvtD0Entry;
 EVT_WDF_OBJECT_CONTEXT_CLEANUP EvtControlCleanup;
@@ -118,7 +125,7 @@ EVT_WDF_WORKITEM ModeSwitchWork;
 EVT_WDF_TIMER KeepAliveTick;
 
 static VOID ForwardAndForget(WDFREQUEST Request, WDFIOTARGET Target);
-static VOID QueueModeSwitch(PFILTER_CONTEXT Ctx, BOOLEAN Force);
+static BOOLEAN QueueModeSwitch(PFILTER_CONTEXT Ctx, BOOLEAN Force);
 
 // ------------------------------------------------------------------ helpers
 
@@ -194,8 +201,12 @@ static VOID PushReport(PFILTER_CONTEXT Ctx, const UCHAR* Data, ULONG Length)
 static ULONG ProcessInputReport(PFILTER_CONTEXT Ctx, PUCHAR Report, ULONG Length)
 {
     LONG flags = Ctx->Flags;
+    LONGLONG now, gap;
     if (Length == 0) return Length;
 
+    now = (LONGLONG)KeQueryInterruptTime();
+    gap = now - Ctx->LastInputTime;
+    Ctx->LastInputTime = now;
     InterlockedIncrement(&Ctx->InputReports);
     Ctx->LastReportLength = Length;
     RtlCopyMemory(Ctx->LastReport, Report, min(Length, sizeof(Ctx->LastReport)));
@@ -220,12 +231,20 @@ static ULONG ProcessInputReport(PFILTER_CONTEXT Ctx, PUCHAR Report, ULONG Length
 
     if (Length > 8) {
         PushReport(Ctx, Report, Length);
-        InterlockedExchange(&Ctx->ModeSwitched, 1);
+        InterlockedExchange(&Ctx->ModeSwitched, 1);   // multitouch confirmed
+        Ctx->UnconfirmedRetries = 0;
         Report[6] = 0; Report[7] = 0;
         Length = 8; // trim to the declared mouse report
     } else if ((flags & MMF_CFG_MULTITOUCH) && Length == 8) {
-        // Plain mouse report while multitouch is wanted: the device reset (sleep/reconnect).
-        QueueModeSwitch(Ctx, FALSE);
+        // Short reports are normal in multitouch mode too: the mouse sends them when it moves with no
+        // finger on the surface. It only drops out of multitouch after dozing off, which shows up as a
+        // gap in its reports. So re-send the mode switch after a gap, or (rate-limited, a few times)
+        // while multitouch has not been confirmed by a touch report since the last switch.
+        if (gap > MODE_RECHECK_GAP) {
+            QueueModeSwitch(Ctx, TRUE);
+        } else if (!Ctx->ModeSwitched && Ctx->UnconfirmedRetries < MODE_UNCONFIRMED_RETRIES) {
+            if (QueueModeSwitch(Ctx, FALSE)) Ctx->UnconfirmedRetries++;
+        }
     }
     if (flags & MMF_CFG_SUPPRESS_BUTTONS) Report[1] = 0;
     if (flags & MMF_CFG_SUPPRESS_MOTION) { Report[2] = Report[3] = Report[4] = Report[5] = 0; }
@@ -234,6 +253,14 @@ static ULONG ProcessInputReport(PFILTER_CONTEXT Ctx, PUCHAR Report, ULONG Length
 
 // ------------------------------------------------------------------ driver / device setup
 
+// The link is ours (see CreateControlDevice), so it is ours to remove.
+VOID EvtDriverUnload(WDFDRIVER Driver)
+{
+    DECLARE_CONST_UNICODE_STRING(link, MMF_SYMLINK_NAME);
+    UNREFERENCED_PARAMETER(Driver);
+    IoDeleteSymbolicLink((PUNICODE_STRING)&link);
+}
+
 NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 {
     WDF_DRIVER_CONFIG config;
@@ -241,6 +268,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 
     KeInitializeSpinLock(&g_Lock);
     WDF_DRIVER_CONFIG_INIT(&config, EvtDeviceAdd);
+    config.EvtDriverUnload = EvtDriverUnload;
     status = WdfDriverCreate(DriverObject, RegistryPath, WDF_NO_OBJECT_ATTRIBUTES, &config, WDF_NO_HANDLE);
     if (NT_SUCCESS(status)) status = WdfWaitLockCreate(WDF_NO_OBJECT_ATTRIBUTES, &g_ControlLock);
     return status;
@@ -253,7 +281,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 // HKLM\SYSTEM\CurrentControlSet\Services\MagicTouchFilter\Parameters for troubleshooting.
 
 static struct {
-    ULONG Adds, Cleanups, D0Entries, CdoCreates, CdoDeletes, CdoUnexpectedDeletes;
+    ULONG Adds, Cleanups, D0Entries, CdoCreates, CdoDeletes, CdoUnexpectedDeletes, LinkRepairs;
     LONG LastCdoStatus;
 } g_Stats;
 
@@ -270,6 +298,7 @@ static VOID SaveStats(VOID)
     SAVE("CdoCreates", g_Stats.CdoCreates);
     SAVE("CdoDeletes", g_Stats.CdoDeletes);
     SAVE("CdoUnexpectedDeletes", g_Stats.CdoUnexpectedDeletes);
+    SAVE("LinkRepairs", g_Stats.LinkRepairs);
     SAVE("LastCdoStatus", g_Stats.LastCdoStatus);
 #undef SAVE
     WdfRegistryClose(key);
@@ -304,9 +333,6 @@ static NTSTATUS CreateControlDevice(WDFDRIVER Driver)
     // Admins and the interactive user (the tray app runs unelevated).
     DECLARE_CONST_UNICODE_STRING(sddl, L"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;IU)");
 
-    // A link left behind by an earlier control device would make WdfDeviceCreateSymbolicLink fail.
-    IoDeleteSymbolicLink((PUNICODE_STRING)&link);
-
     init = WdfControlDeviceInitAllocate(Driver, &sddl);
     if (!init) return STATUS_INSUFFICIENT_RESOURCES;
     WdfDeviceInitSetExclusive(init, FALSE);
@@ -321,7 +347,11 @@ static NTSTATUS CreateControlDevice(WDFDRIVER Driver)
     if (NT_SUCCESS(status)) status = WdfDeviceCreate(&init, &ca, &dev);
     if (!NT_SUCCESS(status)) { if (init) WdfDeviceInitFree(init); return status; }
 
-    status = WdfDeviceCreateSymbolicLink(dev, &link);
+    // The link is owned by us, not the framework: WdfDeviceCreateSymbolicLink deletes the link *by name*
+    // when its device is finally destroyed. If the app still held the old control device open, that
+    // destruction is deferred until the app exits and then removes the link of the *new* control device.
+    IoDeleteSymbolicLink((PUNICODE_STRING)&link);
+    status = IoCreateSymbolicLink((PUNICODE_STRING)&link, (PUNICODE_STRING)&name);
     if (!NT_SUCCESS(status)) goto fail;
 
     WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(&qc, WdfIoQueueDispatchSequential);
@@ -349,7 +379,14 @@ fail:
 static VOID EnsureControlDevice(VOID)
 {
     NTSTATUS status;
-    if (g_ControlDevice) return;
+    DECLARE_CONST_UNICODE_STRING(name, MMF_DEVICE_NAME);
+    DECLARE_CONST_UNICODE_STRING(link, MMF_SYMLINK_NAME);
+    if (g_ControlDevice) {
+        // Device alive but its link may have been lost: put it back (a collision means it is there).
+        status = IoCreateSymbolicLink((PUNICODE_STRING)&link, (PUNICODE_STRING)&name);
+        if (NT_SUCCESS(status)) g_Stats.LinkRepairs++;
+        return;
+    }
     status = CreateControlDevice(WdfGetDriver());
     g_Stats.LastCdoStatus = status;
     if (NT_SUCCESS(status)) g_Stats.CdoCreates++;
@@ -446,8 +483,12 @@ NTSTATUS EvtPrepareHardware(WDFDEVICE Device, WDFCMRESLIST Raw, WDFCMRESLIST Tra
 // Every start and wake: make sure the app can reach us.
 NTSTATUS EvtD0Entry(WDFDEVICE Device, WDF_POWER_DEVICE_STATE PreviousState)
 {
-    UNREFERENCED_PARAMETER(Device);
+    PFILTER_CONTEXT ctx = FilterGetContext(Device);
     UNREFERENCED_PARAMETER(PreviousState);
+    // Started or woke up: the mouse is in plain mode until told otherwise.
+    ctx->MultitouchSent = FALSE;
+    InterlockedExchange(&ctx->ModeSwitched, 0);
+    if (ctx->Flags & MMF_CFG_MULTITOUCH) QueueModeSwitch(ctx, TRUE);
     WdfWaitLockAcquire(g_ControlLock, NULL);
     g_Stats.D0Entries++;
     EnsureControlDevice();
@@ -655,6 +696,7 @@ VOID BrbCompletion(WDFREQUEST Request, WDFIOTARGET Target, PWDF_REQUEST_COMPLETI
             if (c->ChannelHandle == ctx->ControlChannel) ctx->ControlChannel = NULL;
             if (c->ChannelHandle == ctx->InterruptChannel) ctx->InterruptChannel = NULL;
             InterlockedExchange(&ctx->ModeSwitched, 0);
+            ctx->MultitouchSent = FALSE;   // a reconnected mouse starts in plain mode
         }
     }
     WdfRequestComplete(Request, Params->IoStatus.Status);
@@ -776,29 +818,43 @@ VOID SendCompletion(WDFREQUEST Request, WDFIOTARGET Target, PWDF_REQUEST_COMPLET
     WdfObjectDelete(Request);
 }
 
-static NTSTATUS SendModeSwitch(PFILTER_CONTEXT Ctx)
+// On: MM1 D7 01, MM2/MM3 F1 02 01. Off: MM2/MM3 F1 02 00 (verified on an MM3: touch reports stop, plain
+// mouse reports continue). No off command is known for MM1.
+static NTSTATUS SendModeSwitch(PFILTER_CONTEXT Ctx, BOOLEAN On)
 {
-    static const UCHAR mm1[] = { 0xD7, 0x01 };
-    static const UCHAR mm2[] = { 0xF1, 0x02, 0x01 };
+    static const UCHAR mm1On[] = { 0xD7, 0x01 };
+    UCHAR mm2[] = { 0xF1, 0x02, 0x01 };
     Ctx->LastModeSwitch = (LONGLONG)KeQueryInterruptTime();
-    InterlockedIncrement(&Ctx->ModeSwitchSends);
-    if (Ctx->Model == MmfModelMM1) return SendFeature(Ctx, mm1, sizeof(mm1));
-    if (Ctx->Model == MmfModelMM2 || Ctx->Model == MmfModelMM3) return SendFeature(Ctx, mm2, sizeof(mm2));
+    if (Ctx->Model == MmfModelMM1) {
+        if (!On) return STATUS_NOT_SUPPORTED;
+        InterlockedIncrement(&Ctx->ModeSwitchSends);
+        return SendFeature(Ctx, mm1On, sizeof(mm1On));
+    }
+    if (Ctx->Model == MmfModelMM2 || Ctx->Model == MmfModelMM3) {
+        mm2[2] = On ? 0x01 : 0x00;
+        InterlockedIncrement(&Ctx->ModeSwitchSends);
+        InterlockedExchange(&Ctx->ModeSwitched, 0);   // wait for a touch report to confirm
+        return SendFeature(Ctx, mm2, sizeof(mm2));
+    }
     return STATUS_NOT_SUPPORTED;
 }
 
-static VOID QueueModeSwitch(PFILTER_CONTEXT Ctx, BOOLEAN Force)
+// Returns TRUE if a switch was queued (FALSE when rate-limited).
+static BOOLEAN QueueModeSwitch(PFILTER_CONTEXT Ctx, BOOLEAN Force)
 {
     LONGLONG now = (LONGLONG)KeQueryInterruptTime();
-    if (!Force && now - Ctx->LastModeSwitch < MODE_SWITCH_MIN_INTERVAL) return;
+    if (!Force && now - Ctx->LastModeSwitch < MODE_SWITCH_MIN_INTERVAL) return FALSE;
     Ctx->LastModeSwitch = now;
     WdfWorkItemEnqueue(Ctx->ModeSwitchWorkItem);
+    return TRUE;
 }
 
+// Sends whatever the current flags ask for: multitouch on, or off (saves the mouse's battery).
 VOID ModeSwitchWork(WDFWORKITEM WorkItem)
 {
     PFILTER_CONTEXT ctx = FilterGetContext((WDFDEVICE)WdfWorkItemGetParentObject(WorkItem));
-    if (ctx->Flags & MMF_CFG_MULTITOUCH) SendModeSwitch(ctx);
+    BOOLEAN on = (ctx->Flags & MMF_CFG_MULTITOUCH) != 0;
+    if (NT_SUCCESS(SendModeSwitch(ctx, on))) ctx->MultitouchSent = on;
 }
 
 VOID KeepAliveTick(WDFTIMER Timer)
@@ -817,17 +873,21 @@ static PFILTER_CONTEXT LookupDevice(ULONG Index)
     return Index < MMF_MAX_DEVICES ? g_Devices[Index] : NULL;
 }
 
-// The app went away (exit or crash): stop masking buttons/motion so the mouse keeps working natively.
+// The app that switched multitouch on went away (exit or crash): stop masking buttons/motion so the mouse
+// keeps working natively, and turn multitouch off so the mouse stops streaming touch data nobody reads.
+// Other handles (HidProbe info, ...) closing changes nothing.
 VOID EvtControlFileCleanup(WDFFILEOBJECT FileObject)
 {
     KIRQL irql;
     ULONG i;
-    UNREFERENCED_PARAMETER(FileObject);
+    if (FileObject != g_ConfigOwner) return;
+    g_ConfigOwner = NULL;
     KeAcquireSpinLock(&g_Lock, &irql);
     for (i = 0; i < MMF_MAX_DEVICES; i++) {
-        if (g_Devices[i]) {
-            InterlockedAnd(&g_Devices[i]->Flags, ~(LONG)(MMF_CFG_SUPPRESS_BUTTONS | MMF_CFG_SUPPRESS_MOTION));
-        }
+        PFILTER_CONTEXT c = g_Devices[i];
+        if (!c) continue;
+        InterlockedExchange(&c->Flags, 0);
+        if (c->MultitouchSent) QueueModeSwitch(c, TRUE);   // sends "off" since the flag is now clear
     }
     KeReleaseSpinLock(&g_Lock, irql);
 }
@@ -892,8 +952,14 @@ VOID EvtControlIoctl(WDFQUEUE Queue, WDFREQUEST Request, size_t OutLen, size_t I
         c = LookupDevice(in->Index);
         if (!c) { status = STATUS_NO_SUCH_DEVICE; break; }
         c->KeepAlivePeriodMs = in->KeepAlivePeriodMs >= 250 ? in->KeepAlivePeriodMs : 2000;
-        InterlockedExchange(&c->Flags, (LONG)in->Flags);
-        if (in->Flags & MMF_CFG_MULTITOUCH) QueueModeSwitch(c, TRUE);
+        {
+            BOOLEAN on = (in->Flags & MMF_CFG_MULTITOUCH) != 0;
+            InterlockedExchange(&c->Flags, (LONG)in->Flags);
+            // Only talk to the mouse when the mode actually has to change (the app re-sends its config
+            // periodically; that must not cost radio traffic).
+            if (on != c->MultitouchSent) QueueModeSwitch(c, TRUE);
+            if (on) g_ConfigOwner = WdfRequestGetFileObject(Request);
+        }
         if (in->Flags & MMF_CFG_KEEPALIVE) WdfTimerStart(c->KeepAliveTimer, WDF_REL_TIMEOUT_IN_MS(c->KeepAlivePeriodMs));
         else WdfTimerStop(c->KeepAliveTimer, FALSE);
         break;

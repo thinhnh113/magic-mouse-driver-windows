@@ -20,6 +20,16 @@ switch (mode)
     case "raw": Stream(seconds, raw: true); break;
     case "sdp": Sdp(); break;
     case "battery": BatteryRaw(seconds); break;
+    case "mtoff": MultitouchOffTest(args.Length > 1 ? args[1] : "F10200"); break;
+    case "disconnect":
+    {
+        using var fc = FilterClient.TryOpen();
+        var addr = BluetoothLink.ParseAddress(fc?.GetDevices().FirstOrDefault()?.BluetoothAddress);
+        if (addr is not { } a) { Console.WriteLine("No Bluetooth Magic Mouse found."); break; }
+        int err = BluetoothLink.Disconnect(a);
+        Console.WriteLine(err == 0 ? $"Disconnected {a:X12}." : $"Disconnect {a:X12} failed: Win32 error {err}");
+        break;
+    }
     default: Console.WriteLine("usage: HidProbe [info | stream [sec] | raw [sec] | sdp]"); break;
 }
 
@@ -92,6 +102,58 @@ static void Stream(int seconds, bool raw)
         Console.WriteLine($"{sw.ElapsedMilliseconds,6}ms btn={frame.Buttons,-5} d={frame.Dx,3},{frame.Dy,3} {touches}");
     }
     Console.WriteLine($"{count} reports.");
+}
+
+// Experiment: does <hex> (default F1 02 00) take the mouse out of multitouch mode?
+// Touch reports (0x12, >8 bytes) vs plain mouse reports (0x12, 8 bytes) are counted per second from the
+// driver's counters. Multitouch is always restored at the end.
+static void MultitouchOffTest(string hex)
+{
+    using var f = FilterClient.TryOpen();
+    if (f == null) { Console.WriteLine("MagicTouchFilter not present."); return; }
+    var dev = f.GetDevices().FirstOrDefault();
+    if (dev?.Diagnostics == null) { Console.WriteLine("No filtered Magic Mouse."); return; }
+    int idx = dev.Index;
+    (uint touch, uint plain) Sample()
+    {
+        var d = f.GetDevices().First(x => x.Index == idx);
+        uint batt = d.Battery?.ReportsSeen ?? 0;
+        return (d.ReportsSeen, d.Diagnostics!.InputReports - d.ReportsSeen - batt);
+    }
+    void Phase(string name, int secs)
+    {
+        Console.WriteLine($"-- {name}");
+        var prev = Sample();
+        for (int i = 0; i < secs; i++)
+        {
+            Thread.Sleep(1000);
+            var cur = Sample();
+            Console.WriteLine($"   {i + 1,2}s  touch reports +{cur.touch - prev.touch,4}   plain mouse reports +{cur.plain - prev.plain,4}");
+            prev = cur;
+        }
+    }
+
+    try
+    {
+        // Keep the driver from switching multitouch straight back on when it sees plain reports.
+        f.SetConfig(idx, FilterFlags.None, 2000);
+        Console.WriteLine("Waiting for a finger on the surface (up to 60 s)...");
+        var start = Sample();
+        var sw = Stopwatch.StartNew();
+        while (Sample().touch - start.touch < 50 && sw.Elapsed.TotalSeconds < 60) Thread.Sleep(200);
+        if (sw.Elapsed.TotalSeconds >= 60) { Console.WriteLine("No touches seen; aborting."); return; }
+
+        Phase("baseline: multitouch on", 3);
+        var bytes = Convert.FromHexString(hex);
+        f.SendFeature(idx, bytes);
+        Console.WriteLine($"Sent feature report {hex}");
+        Phase("after command", 10);
+    }
+    finally
+    {
+        f.SetConfig(idx, FilterFlags.Multitouch, 2000);   // also re-sends F1 02 01
+        Console.WriteLine("Restored multitouch.");
+    }
 }
 
 // Raw view of the battery collection: GET_REPORT replies plus unsolicited input reports.

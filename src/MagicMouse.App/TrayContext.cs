@@ -204,12 +204,26 @@ internal sealed class TrayContext : ApplicationContext
         _sessionLocked = e.Reason is SessionSwitchReason.SessionLock or SessionSwitchReason.SessionLogoff
             or SessionSwitchReason.ConsoleDisconnect;
         UpdatePause();
+        if (e.Reason == SessionSwitchReason.SessionLock && _settings.Power.DisconnectOnLock)
+            DisconnectSoon(() => _sessionLocked);
     }
 
     internal void OnDisplayState(bool on)
     {
+        bool turnedOff = !on && !_displayOff;
         _displayOff = !on;
         UpdatePause();
+        if (turnedOff && _settings.Power.DisconnectOnDisplayOff) DisconnectSoon(() => _displayOff);
+    }
+
+    /// <summary>Drops the mouse's Bluetooth link after a short grace period, if the condition still holds,
+    /// so the mouse can deep-sleep. Moving or clicking it reconnects it.</summary>
+    private void DisconnectSoon(Func<bool> stillWanted)
+    {
+        Task.Delay(TimeSpan.FromSeconds(5)).ContinueWith(_ =>
+        {
+            if (stillWanted()) _service.DisconnectBluetooth();
+        });
     }
 
     private void UpdatePause()
